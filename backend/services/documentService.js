@@ -65,6 +65,7 @@ async function getDocuments(companyId) {
       "status",
       "pr_remaining_amount",
       "document_status",
+      "payment_request",
     ]);
     inParams.push(0);
     const params = [];
@@ -78,7 +79,42 @@ async function getDocuments(companyId) {
     });
   });
 
-  return documents;
+  // Collect unique payment_request IDs (many2one returns [id, name] or false)
+  const prIds = [...new Set(
+    documents
+      .map((doc) => doc.payment_request && doc.payment_request[0])
+      .filter(Boolean)
+  )];
+
+  // Batch fetch expire_date from sea.sign.payment.request
+  let expireDateMap = {};
+  if (prIds.length > 0) {
+    const prRecords = await new Promise((resolve, reject) => {
+      const inParams = [];
+      inParams.push([["id", "in", prIds]]);
+      inParams.push(["id", "expire_date"]);
+      inParams.push(0);
+      const params = [];
+      params.push(inParams);
+      getOdoo().execute_kw("sea.sign.payment.request", "search_read", params, (err, records) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(records);
+        }
+      });
+    });
+    prRecords.forEach((pr) => {
+      expireDateMap[pr.id] = pr.expire_date || null;
+    });
+  }
+
+  const enriched = documents.map((doc) => ({
+    ...doc,
+    expire_date: doc.payment_request ? expireDateMap[doc.payment_request[0]] || null : null,
+  }));
+
+  return enriched;
 }
 
 async function getDocumentPDF(uid) {

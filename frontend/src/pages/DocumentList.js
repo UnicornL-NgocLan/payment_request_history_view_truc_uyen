@@ -2,10 +2,11 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDocuments, getDocumentPDF, searchAttachments } from "../services/api";
 import { Table, Select, Button, Space, Tooltip, Modal, List, Input, Tag, message, DatePicker } from "antd";
-import { EyeOutlined, DownloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { EyeOutlined, DownloadOutlined, SearchOutlined, FileExcelOutlined } from "@ant-design/icons";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import dayjs from "dayjs";
+import * as XLSX from "xlsx";
 
 function DocumentList() {
   const [documents, setDocuments] = useState([]);
@@ -65,10 +66,14 @@ function DocumentList() {
           <Button type="primary" onClick={() => confirm()} icon={<SearchOutlined />} size="small" style={{ width: 90 }}>
             Tìm
           </Button>
-          <Button onClick={() => {
-            clearFilters && clearFilters();
-            confirm(); // Need to confirm to trigger table reload
-          }} size="small" style={{ width: 90 }}>
+          <Button
+            onClick={() => {
+              clearFilters && clearFilters();
+              confirm(); // Need to confirm to trigger table reload
+            }}
+            size="small"
+            style={{ width: 90 }}
+          >
             Xóa
           </Button>
         </Space>
@@ -78,8 +83,8 @@ function DocumentList() {
     onFilter: (value, record) => {
       if (!record[dataIndex] || !value || value.length !== 2) return false;
       const recordDate = dayjs(record[dataIndex]);
-      const startDate = value[0].startOf('day');
-      const endDate = value[1].endOf('day');
+      const startDate = value[0].startOf("day");
+      const endDate = value[1].endOf("day");
       return recordDate.isAfter(startDate) && recordDate.isBefore(endDate);
     },
   });
@@ -272,6 +277,36 @@ function DocumentList() {
     }
   };
 
+  const handleExportExcel = () => {
+    if (selectedRows.length === 0) return;
+
+    const statusMap = {
+      process: "Đang thực hiện",
+      completed: "Hoàn thành",
+      approved: "Đã được duyệt",
+      canceled: "Bị hủy",
+    };
+
+    const data = selectedRows.map((doc) => ({
+      Mã: doc.name_seq || "",
+      Tên: doc.name || "",
+      "Người yêu cầu": Array.isArray(doc.employee_request) ? doc.employee_request[1] : doc.employee_request || "",
+      "Nhà cung cấp": doc.pr_supplier_name || "",
+      "Ngày gửi": doc.sent_date ? dayjs(doc.sent_date).format("DD/MM/YYYY") : "",
+      "Mô tả": doc.document_description || "",
+      "Trạng thái": statusMap[doc.status] || doc.status || "",
+      "Giai đoạn": doc.document_status || "",
+      "Thời hạn thanh toán": doc.expire_date ? dayjs(doc.expire_date).format("DD/MM/YYYY") : "",
+      "Số tiền đề nghị thanh toán": doc.pr_remaining_amount ?? "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tài liệu");
+    XLSX.writeFile(wb, `TaiLieu_${dayjs().format("YYYYMMDD_HHmmss")}.xlsx`);
+    message.success("Xuất Excel thành công!");
+  };
+
   const columns = [
     {
       title: "Mã",
@@ -321,7 +356,13 @@ function DocumentList() {
       dataIndex: "status",
       key: "status",
       sorter: (a, b) => a.status.localeCompare(b.status),
-      ...getColumnSearchProps("status", "trạng thái"),
+      filters: [
+        { text: "Đang thực hiện", value: "process" },
+        { text: "Hoàn thành", value: "completed" },
+        { text: "Đã được duyệt", value: "approved" },
+        { text: "Bị hủy", value: "canceled" },
+      ],
+      onFilter: (value, record) => record.status === value,
       render: (status) => {
         let color = "default";
         let text = status;
@@ -348,6 +389,14 @@ function DocumentList() {
       key: "document_status",
       sorter: (a, b) => a.document_status.localeCompare(b.document_status),
       ...getColumnSearchProps("document_status", "giai đoạn"),
+    },
+    {
+      title: "Thời hạn thanh toán",
+      dataIndex: "expire_date",
+      key: "expire_date",
+      sorter: (a, b) => new Date(a.expire_date || 0) - new Date(b.expire_date || 0),
+      ...getDateRangeSearchProps("expire_date", "thời hạn thanh toán"),
+      render: (value) => (value ? dayjs(value).format("DD/MM/YYYY") : <span style={{ color: "#bbb" }}>—</span>),
     },
     {
       title: "Số tiền đề nghị thanh toán",
@@ -391,9 +440,14 @@ function DocumentList() {
           Xem
         </Button>
         {selectedRowKeys.length > 0 && (
-          <Button type="default" onClick={handleBulkDownload} icon={<DownloadOutlined />} loading={loading}>
-            Tải xuống đã chọn ({selectedRowKeys.length})
-          </Button>
+          <>
+            <Button type="default" onClick={handleBulkDownload} icon={<DownloadOutlined />} loading={loading}>
+              Tải xuống đã chọn ({selectedRowKeys.length})
+            </Button>
+            <Button type="default" onClick={handleExportExcel} icon={<FileExcelOutlined />} style={{ color: "#217346", borderColor: "#217346" }}>
+              Xuất Excel ({selectedRowKeys.length})
+            </Button>
+          </>
         )}
       </Space>
 
