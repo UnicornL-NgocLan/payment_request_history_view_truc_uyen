@@ -24,7 +24,7 @@ app.post("/api/login", async (req, res) => {
     initOdoo(username, password);
     const uid = await connectOdoo();
 
-    if (![500, 7, 1903, 460].includes(uid)) {
+    if (![500, 7, 1903, 460, 2206].includes(uid)) {
       return res.status(403).json({ error: "Tài khoản của bạn không có quyền truy cập!" });
     }
 
