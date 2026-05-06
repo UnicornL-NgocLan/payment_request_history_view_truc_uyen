@@ -64,8 +64,13 @@ async function getDocuments(companyId) {
       "document_description",
       "status",
       "pr_remaining_amount",
+      "pr_reimbursement_amount",
       "document_status",
       "payment_request",
+      "payments_payment_contract",
+      "payments_payment_bill",
+      "payments_contract_amount",
+      "sea_sign_payments",
     ]);
     inParams.push(0);
     const params = [];
@@ -80,38 +85,74 @@ async function getDocuments(companyId) {
   });
 
   // Collect unique payment_request IDs (many2one returns [id, name] or false)
-  const prIds = [...new Set(
-    documents
-      .map((doc) => doc.payment_request && doc.payment_request[0])
-      .filter(Boolean)
-  )];
-
+  const prIds = [...new Set(documents.map((doc) => doc.payment_request && doc.payment_request[0]).filter(Boolean))];
+  const pIds = [...new Set(documents.map((doc) => doc.sea_sign_payments && doc.sea_sign_payments[0]).filter(Boolean))];
   // Batch fetch expire_date from sea.sign.payment.request
-  let expireDateMap = {};
-  if (prIds.length > 0) {
-    const prRecords = await new Promise((resolve, reject) => {
-      const inParams = [];
-      inParams.push([["id", "in", prIds]]);
-      inParams.push(["id", "expire_date"]);
-      inParams.push(0);
-      const params = [];
-      params.push(inParams);
-      getOdoo().execute_kw("sea.sign.payment.request", "search_read", params, (err, records) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(records);
-        }
-      });
+  const prRecords = await new Promise((resolve, reject) => {
+    const inParams = [];
+    inParams.push([["id", "in", prIds]]);
+    inParams.push([
+      "id",
+      "expire_date",
+      "advance_file_id",
+      "payments_bill_amount",
+      "company_currency",
+      "supplier_address",
+      "supplier_tax_code",
+      "supplier_name",
+      "payment_method",
+      "acc_holder_name",
+      "partner_account_address",
+      "account_number",
+      "bank_name",
+      "bank_address",
+      "bic",
+    ]);
+    inParams.push(0);
+    const params = [];
+    params.push(inParams);
+    getOdoo().execute_kw("sea.sign.payment.request", "search_read", params, (err, records) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(records);
+      }
     });
-    prRecords.forEach((pr) => {
-      expireDateMap[pr.id] = pr.expire_date || null;
+  });
+
+  // Batch fetch from sea.sign.payment
+  const paymentsRecords = await new Promise((resolve, reject) => {
+    const inParams = [];
+    inParams.push([["id", "in", pIds]]);
+    inParams.push(["id", "supplier_name", "supplier_address", "supplier_tax_code"]);
+    inParams.push(0);
+    const params = [];
+    params.push(inParams);
+    getOdoo().execute_kw("sea.sign.payments", "search_read", params, (err, records) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(records);
+      }
     });
-  }
+  });
 
   const enriched = documents.map((doc) => ({
     ...doc,
-    expire_date: doc.payment_request ? expireDateMap[doc.payment_request[0]] || null : null,
+    expire_date: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).expire_date || null : null,
+    advance_file_id: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).advance_file_id || null : null,
+    company_currency: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).company_currency || null : null,
+    payments_bill_amount: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).payments_bill_amount || null : null,
+    payment_method: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).payment_method || null : null,
+    acc_holder_name: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).acc_holder_name || null : null,
+    partner_account_address: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).partner_account_address || null : null,
+    account_number: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).account_number || null : null,
+    bank_name: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).bank_name || null : null,
+    bank_address: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).bank_address || null : null,
+    bic: doc.payment_request ? prRecords.find((pr) => pr.id === doc.payment_request[0]).bic || null : null,
+    supplier_name: doc.sea_sign_payments ? paymentsRecords.find((pr) => pr.id === doc.sea_sign_payments[0]).supplier_name || null : null,
+    supplier_address: doc.sea_sign_payments ? paymentsRecords.find((pr) => pr.id === doc.sea_sign_payments[0]).supplier_address || null : null,
+    supplier_tax_code: doc.sea_sign_payments ? paymentsRecords.find((pr) => pr.id === doc.sea_sign_payments[0]).supplier_tax_code || null : null,
   }));
 
   return enriched;
