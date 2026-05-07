@@ -93,7 +93,7 @@ function DocumentList() {
     { id: 6, name: "CÔNG TY CỔ PHẦN PHÁT TRIỂN NÔNG NGHIỆP HẢI ÂU" },
     { id: 27, name: "CÔNG TY TNHH SEAFARM MEKONG" },
     { id: 26, name: "CÔNG TY TNHH SEAFARM CAO NGUYÊN" },
-    { id: 28, name: "CÔNG TY TNHH SEAGULL ADC LÂM ĐỒNG" },
+    { id: 18, name: "CÔNG TY TNHH SEAGULL ADC LÂM ĐỒNG" },
     { id: 15, name: "CÔNG TY TNHH SEAGULL ADC NINH THUẬN" },
     { id: 32, name: "CÔNG TY TNHH SEAFARM LÂM ĐỒNG" },
     { id: 31, name: "CÔNG TY CỔ PHẦN DANNYGREEN VIỆT NAM NAM TRUNG BỘ" },
