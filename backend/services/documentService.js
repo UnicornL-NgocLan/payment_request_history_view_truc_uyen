@@ -71,6 +71,7 @@ async function getDocuments(companyId) {
       "payments_payment_bill",
       "payments_contract_amount",
       "sea_sign_payments",
+      "completed_date"
     ]);
     inParams.push(0);
     const params = [];

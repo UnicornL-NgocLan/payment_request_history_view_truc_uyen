@@ -315,6 +315,7 @@ function DocumentList() {
       "Địa chỉ ngân hàng": doc.bank_address || "",
       "Mã BIC": doc.bic || "",
       "Số tiền bồi hoàn": doc.pr_reimbursement_amount ?? "",
+      "Ngày hoàn thành": doc.completed_date ? dayjs(doc.completed_date).format("DD/MM/YYYY") : "",
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -546,6 +547,13 @@ function DocumentList() {
       align: "right",
       render: (val) => (val ? new Intl.NumberFormat("vi-VN").format(val) : ""),
       ...getColumnSearchProps("pr_reimbursement_amount", "số tiền bồi hoàn"),
+    },
+    {
+      title: "Ngày hoàn thành",
+      dataIndex: "completed_date",
+      key: "completed_date",
+      sorter: (a, b) => new Date(a.completed_date) - new Date(b.completed_date),
+      ...getDateRangeSearchProps("completed_date", "Ngày hoàn thành"),
     },
     {
       title: "Hành động",
