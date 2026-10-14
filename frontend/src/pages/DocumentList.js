@@ -1,8 +1,8 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDocuments, getDocumentPDF, searchAttachments } from "../services/api";
-import { Table, Select, Button, Space, Tooltip, Modal, List, Input, Tag, message, DatePicker } from "antd";
-import { EyeOutlined, DownloadOutlined, SearchOutlined, FileExcelOutlined } from "@ant-design/icons";
+import { Table, Select, Button, Space, Tooltip, Modal, List, Input, Tag, message, notification, DatePicker } from "antd";
+import { EyeOutlined, DownloadOutlined, SearchOutlined, FileExcelOutlined, CloudDownloadOutlined } from "@ant-design/icons";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import dayjs from "dayjs";
@@ -127,6 +127,7 @@ function DocumentList() {
 
   const openDocument = async (doc) => {
     setCurrentDoc(doc);
+    setAttachments([]);      // clear dữ liệu cũ trước khi fetch
     setIsModalOpen(true);
     setModalLoading(true);
     try {
@@ -160,36 +161,32 @@ function DocumentList() {
 
   const handleDownloadAttachment = async (item) => {
     const key = "downloadAttachment";
-    message.loading({ content: "Đang chuẩn bị file tải về...", key });
+    message.loading({ content: "Đang chuẩn bị file tải về...", key, duration: 0 });
     try {
-      const filename = item.sea_sign_attachment_filename_new;
-      const base64Data = item.sea_sign_attachment_preview;
+      const zip = new JSZip();
 
-      // Convert base64 to Blob
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: "application/octet-stream" });
+      // 1. Thêm file đính kèm vào ZIP (base64 có sẵn)
+      zip.file(item.sea_sign_attachment_filename_new, item.sea_sign_attachment_preview, { base64: true });
 
-      saveAs(blob, filename);
-
-      // Tải thêm file PDF chính nếu có
+      // 2. Thêm file PDF vào ZIP nếu có (dùng base64 từ backend, tránh CORS)
       if (currentDoc) {
         try {
           const pdfData = await getDocumentPDF(currentDoc.id);
-          if (pdfData && pdfData.url) {
-            const pdfUrl = `https://home.seacorp.vn${pdfData.url}`;
-            const response = await fetch(pdfUrl);
-            const pdfBlob = await response.blob();
-            saveAs(pdfBlob, `${currentDoc.name_seq || currentDoc.id}.pdf`);
+          if (pdfData && pdfData.base64) {
+            const pdfFilename = (currentDoc.name_seq || currentDoc.id).replace(/[/\\?%*:|"<>]/g, "-") + ".pdf";
+            zip.file(pdfFilename, pdfData.base64, { base64: true });
           }
         } catch (e) {
-          console.error("Lỗi khi tải file PDF chính kèm theo", e);
+          console.error("Lỗi khi thêm PDF vào ZIP", e);
         }
       }
+
+      // 3. Xuất ZIP (1 lần saveAs duy nhất, trình duyệt không block)
+      const zipName = currentDoc
+        ? (currentDoc.name_seq || currentDoc.id).replace(/[/\\?%*:|"<>]/g, "-")
+        : item.sea_sign_attachment_filename_new.replace(/\.[^.]+$/, "");
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${zipName}.zip`);
 
       message.success({ content: "Tải về thành công!", key });
     } catch (error) {
@@ -226,6 +223,52 @@ function DocumentList() {
     window.open(fileURL, "_blank");
   };
 
+  const handleDownloadAllFiles = async (doc) => {
+    const key = `downloadAll_${doc.id}`;
+    const zipName = (doc.name_seq || `doc_${doc.id}`).replace(/[/\\?%*:|"<>]/g, "-");
+    message.loading({ content: `Đang chuẩn bị file ZIP cho ${doc.name_seq}...`, key, duration: 0 });
+    try {
+      const zip = new JSZip();
+      let downloadedCount = 0;
+
+      // 1. Thêm tất cả file đính kèm vào ZIP (base64 từ backend)
+      const atts = await searchAttachments(doc.name_seq);
+      const expectedCount = (atts ? atts.length : 0) + 1; // +1 cho file PDF
+      if (atts && atts.length > 0) {
+        atts.forEach((att) => {
+          zip.file(att.sea_sign_attachment_filename_new, att.sea_sign_attachment_preview, { base64: true });
+          downloadedCount++;
+        });
+      }
+
+      // 2. Thêm file PDF vào ZIP (dùng base64 backend đã fetch sẵn, tránh CORS)
+      const pdfData = await getDocumentPDF(doc.id);
+      if (pdfData && pdfData.base64) {
+        zip.file(`${zipName}.pdf`, pdfData.base64, { base64: true });
+        downloadedCount++;
+      }
+
+      // 3. Xuất ZIP với tên theo cột Mã
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${zipName}.zip`);
+
+      message.success({ content: `Đã tải ZIP: ${zipName}.zip!`, key });
+
+      // 4. Cảnh báo nếu số file thực tế khác với kỳ vọng
+      if (downloadedCount !== expectedCount) {
+        notification.warning({
+          message: "Tải file không đầy đủ",
+          description: `Kỳ vọng ${expectedCount} file (${expectedCount - 1} đính kèm + 1 PDF), nhưng chỉ tải được ${downloadedCount} file. Một số file có thể bị thiếu.`,
+          placement: "topRight",
+          duration: 20,
+        });
+      }
+    } catch (error) {
+      console.error("Tải ZIP thất bại", error);
+      message.error({ content: "Tải file thất bại, vui lòng thử lại.", key });
+    }
+  };
+
   const onSelectChange = (newSelectedRowKeys, newSelectedRows) => {
     setSelectedRowKeys(newSelectedRowKeys);
     setSelectedRows(newSelectedRows);
@@ -240,7 +283,6 @@ function DocumentList() {
 
     try {
       for (const doc of selectedRows) {
-        // Tạo folder tên theo mã tài liệu hoặc ID
         const folderName = (doc.name_seq || `doc_${doc.id}`).replace(/[/\\?%*:|"<>]/g, "-");
         const folder = zip.folder(folderName);
 
@@ -250,17 +292,10 @@ function DocumentList() {
           folder.file(att.sea_sign_attachment_filename_new, att.sea_sign_attachment_preview, { base64: true });
         });
 
-        // 2. Lấy và nén file PDF chính (URL)
+        // 2. Lấy và nén file PDF (dùng base64 từ field pdf_view_data, tránh CORS)
         const pdfInfo = await getDocumentPDF(doc.id);
-        if (pdfInfo && pdfInfo.url) {
-          try {
-            const pdfUrl = `https://home.seacorp.vn${pdfInfo.url}`;
-            const response = await fetch(pdfUrl);
-            const blob = await response.blob();
-            folder.file(`${folderName}.pdf`, blob);
-          } catch (e) {
-            console.error(`Không thể tải file PDF chính cho ${doc.name_seq}`, e);
-          }
+        if (pdfInfo && pdfInfo.base64) {
+          folder.file(`${folderName}.pdf`, pdfInfo.base64, { base64: true });
         }
       }
 
@@ -271,6 +306,53 @@ function DocumentList() {
       setSelectedRows([]);
     } catch (error) {
       console.error("Tải hàng loạt thất bại", error);
+      message.error({ content: "Tải về thất bại, vui lòng thử lại.", key });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkDownloadAllFiles = async () => {
+    if (selectedRows.length === 0) return;
+    setLoading(true);
+    const key = "bulkDownloadAll";
+    const timestamp = dayjs().format("YYYYMMDD_HHmmss");
+    message.loading({ content: `Đang chuẩn bị ZIP cho ${selectedRows.length} tài liệu...`, key, duration: 0 });
+
+    try {
+      const outerZip = new JSZip();
+
+      for (const doc of selectedRows) {
+        const zipName = (doc.name_seq || `doc_${doc.id}`).replace(/[/\\?%*:|"<>]/g, "-");
+        const innerZip = new JSZip();
+
+        // 1. Thêm file đính kèm vào inner ZIP
+        const atts = await searchAttachments(doc.name_seq);
+        if (atts && atts.length > 0) {
+          atts.forEach((att) => {
+            innerZip.file(att.sea_sign_attachment_filename_new, att.sea_sign_attachment_preview, { base64: true });
+          });
+        }
+
+        // 2. Thêm PDF vào inner ZIP (base64 từ field pdf_view_data)
+        const pdfData = await getDocumentPDF(doc.id);
+        if (pdfData && pdfData.base64) {
+          innerZip.file(`${zipName}.pdf`, pdfData.base64, { base64: true });
+        }
+
+        // 3. Nén inner ZIP thành blob rồi thêm vào outer ZIP
+        const innerBlob = await innerZip.generateAsync({ type: "blob" });
+        outerZip.file(`${zipName}.zip`, innerBlob);
+      }
+
+      // 4. Xuất outer ZIP, tên là thời điểm tải
+      const outerContent = await outerZip.generateAsync({ type: "blob" });
+      saveAs(outerContent, `TaiLieu_${timestamp}.zip`);
+      message.success({ content: `Đã tải ZIP tổng hợp: TaiLieu_${timestamp}.zip!`, key });
+      setSelectedRowKeys([]);
+      setSelectedRows([]);
+    } catch (error) {
+      console.error("Tải hàng loạt tất cả file thất bại", error);
       message.error({ content: "Tải về thất bại, vui lòng thử lại.", key });
     } finally {
       setLoading(false);
@@ -558,6 +640,8 @@ function DocumentList() {
     {
       title: "Hành động",
       key: "action",
+      fixed: "right",
+      width: 120,
       render: (_, doc) => (
         <Space>
           <Tooltip title="Xem đính kèm">
@@ -565,6 +649,13 @@ function DocumentList() {
           </Tooltip>
           <Tooltip title="Tải PDF">
             <Button type="text" icon={<DownloadOutlined />} onClick={() => handleDownLoadPDF(doc.id)} />
+          </Tooltip>
+          <Tooltip title="Tải tất cả file liên quan">
+            <Button
+              type="text"
+              icon={<CloudDownloadOutlined style={{ color: "#1677ff" }} />}
+              onClick={() => handleDownloadAllFiles(doc)}
+            />
           </Tooltip>
         </Space>
       ),

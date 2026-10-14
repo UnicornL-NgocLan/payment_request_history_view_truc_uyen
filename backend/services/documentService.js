@@ -176,21 +176,38 @@ async function getDocumentPDF(uid) {
 
   if (odooResult && odooResult.url) {
     try {
-      const pdfUrl = `https://home.seacorp.vn${odooResult.url}`;
-      const response = await axios.get(pdfUrl, { responseType: "arraybuffer" });
-      const base64 = Buffer.from(response.data, "binary").toString("base64");
-      return {
-        url: odooResult.url,
-        base64: base64,
-      };
+      // URL dạng /web/content/sea.sign.document/<id>/pdf_view_data/<filename>
+      // => pdf lưu trong field binary "pdf_view_data" trên model sea.sign.document
+      const docId = parseInt(uid);
+      const records = await new Promise((resolve, reject) => {
+        const params = [[[docId], ["pdf_view_data", "name_seq"]]];
+        getOdoo().execute_kw("sea.sign.document", "read", params, (err, result) => {
+          if (err) reject(err);
+          else resolve(result);
+        });
+      });
+
+      if (records && records.length > 0 && records[0].pdf_view_data) {
+        // pdf_view_data đã là base64
+        const urlParts = odooResult.url.split("/");
+        const pdfFilename = urlParts[urlParts.length - 1]?.split("?")[0] || `${records[0].name_seq || uid}.pdf`;
+        return {
+          url: odooResult.url,
+          base64: records[0].pdf_view_data,
+          filename: pdfFilename,
+        };
+      }
     } catch (e) {
-      console.error("Failed to fetch PDF buffer in backend", e);
-      return odooResult;
+      console.error("[getDocumentPDF] Failed to read pdf_view_data field:", e);
     }
+
+    // Fallback: trả về chỉ URL
+    return odooResult;
   }
 
   return odooResult;
 }
+
 
 module.exports = {
   getAttachmentByNameSeq,
