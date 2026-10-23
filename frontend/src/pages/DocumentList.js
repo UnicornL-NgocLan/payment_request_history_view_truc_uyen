@@ -97,6 +97,7 @@ function DocumentList() {
     { id: 15, name: "CÔNG TY TNHH SEAGULL ADC NINH THUẬN" },
     { id: 32, name: "CÔNG TY TNHH SEAFARM LÂM ĐỒNG" },
     { id: 31, name: "CÔNG TY CỔ PHẦN DANNYGREEN VIỆT NAM NAM TRUNG BỘ" },
+    { id: 40, name: "CÔNG TY TNHH THUẬN HẢI DANNYGREEN" },
   ];
 
   const loadDocuments = async (companyId) => {
